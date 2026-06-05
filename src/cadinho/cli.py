@@ -126,6 +126,19 @@ def report_variant(ctx, hgvs, gene):
     click.echo(rep["markdown"])
 
 
+@main.command(help="OPTIONAL: literature context for a variant (real citations only).")
+@click.option("--hgvs", required=True, help='e.g. "p.Arg77Cys"')
+@click.option("--gene", default=None)
+@click.option("--online/--offline", default=None,
+              help="Query Europe PMC live (needs network). Default offline in fixture mode.")
+@click.pass_context
+def literature(ctx, hgvs, gene, online):
+    from cadinho.literature.pubmed import literature_for_variant, to_markdown
+    cfg = _cfg(ctx.obj["config_path"])
+    res = literature_for_variant(cfg, hgvs, gene, online=online)
+    click.echo(to_markdown(res, hgvs, gene or cfg.genes.focus))
+
+
 @main.command(help="Run the whole pipeline: ingest -> normalize -> train -> evaluate -> report.")
 @click.option("--repeats", default=None, type=int)
 @click.pass_context

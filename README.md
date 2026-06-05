@@ -112,7 +112,29 @@ Single-variant report (R77C, the most common SGCA pathogenic variant — the end
 uv run cadinho report-variant --hgvs "c.229C>T"      # or --hgvs "p.Arg77Cys"
 ```
 
+CI (`.github/workflows/ci.yml`) runs lint + tests + a fixture-mode pipeline smoke test on
+every push/PR, so the green check reflects a reproducible run from the pinned `uv.lock`.
+
 ---
+
+## Literature context (optional, isolated)
+
+A separate module retrieves what the *published literature* says about a specific residue
+via **Europe PMC** — real citations only, **never fabricated**, and importing nothing from
+the ML core so the science stands alone. Offline/fixture mode prints the exact query it
+*would* run with an empty result set rather than inventing findings:
+
+```bash
+uv run cadinho literature --hgvs "p.Arg77Cys"            # offline: shows the query
+uv run cadinho literature --hgvs "p.Arg77Cys" --online   # live Europe PMC (needs network)
+```
+
+## Data versions / provenance
+
+Every raw artifact (fixture or real) is pinned in `data/raw/manifest.json` with its mode,
+source URL/version, retrieval date, row count, a sha256, and a `synthetic` flag. Run
+`uv run cadinho info` to print the manifest summary. In `live` mode the ClinVar release
+date (HTTP `Last-Modified`), gnomAD dataset id, and UniProt source are recorded there.
 
 ## Switching to real data
 
