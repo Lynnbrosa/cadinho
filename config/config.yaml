@@ -37,16 +37,13 @@ data_sources:
 genes:
   panel: [SGCA, SGCB, SGCG, SGCD]
   focus: SGCA
-  # NOTE: only SGCA's accession (Q16586) is needed for the report and is verified
-  # against the spec. The other three accessions are used ONLY in `live` mode to fetch
-  # per-gene UniProt topology; fixture mode keys regions by gene symbol and ignores them.
-  # SGCG's accession is left null pending verification rather than asserting a wrong one
-  # (live mode degrades gracefully to "unknown region" for a null accession).
+  # UniProt accessions for the four sarcoglycans, verified (see tests/test_config_accessions).
+  # Used in `live` mode to fetch per-gene topology; fixture mode keys regions by gene symbol.
   meta:
     SGCA: { transcript: NM_000023.4, uniprot: Q16586, chrom: "17", aa_len: 387 }
-    SGCB: { transcript: NM_000232.5, uniprot: Q13326, chrom: "4",  aa_len: 318 }  # verify accession before live use
-    SGCG: { transcript: NM_000231.3, uniprot: null,   chrom: "13", aa_len: 291 }  # accession unverified -> null
-    SGCD: { transcript: NM_000337.6, uniprot: Q92629, chrom: "5",  aa_len: 290 }  # verify accession before live use
+    SGCB: { transcript: NM_000232.5, uniprot: Q16585, chrom: "4",  aa_len: 318 }
+    SGCG: { transcript: NM_000231.3, uniprot: Q13326, chrom: "13", aa_len: 291 }
+    SGCD: { transcript: NM_000337.6, uniprot: Q92629, chrom: "5",  aa_len: 290 }
 
 # ---------------------------------------------------------------------------
 # ClinVar ClinicalSignificance -> binary label. VUS/Conflicting are held out.
