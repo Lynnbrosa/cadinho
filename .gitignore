@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Data: never commit downloaded/generated data. Regenerate via `make`.
+data/raw/*
+data/interim/*
+data/processed/*
+!data/**/.gitkeep
+
+# Generated model artifacts
+models/*.pkl
+models/*.txt
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Reports: small markdown/plots ARE committed as deliverables (see make report),
+# but ignore bulky intermediate figures by extension if needed.
+reports/_scratch/

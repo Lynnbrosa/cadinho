@@ -1,0 +1,129 @@
+# cadinho — single source of truth.
+# Confirmed choices: 4 sarcoglycan training panel, GRCh38 only, fixtures-now + wired real ingest.
+
+project:
+  name: cadinho
+  seed: 42
+  genome_build: GRCh38        # primary AND only; everything normalised to this. No liftover.
+
+# ---------------------------------------------------------------------------
+# Data sourcing. mode controls where ingest reads from:
+#   fixture  -> deterministic SYNTHETIC data mirroring real schemas (default here)
+#   live     -> download from the real hosts (requires network access)
+#   provided -> read real files you placed into data/raw/ matching documented schemas
+# ---------------------------------------------------------------------------
+data_sources:
+  mode: fixture
+  fixture_seed: 1234          # seed for synthetic-data generation (separate from model seed)
+  fixture_n_per_gene: 90      # synthetic missense rows per gene (before label balancing)
+  clinvar:
+    release: null             # pinned at ingest (live)
+    url: "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz"
+  gnomad:
+    version: v4
+    api: "https://gnomad.broadinstitute.org/api"
+    dataset: gnomad_r4
+  dbnsfp:
+    version: null             # pinned at ingest (live/provided)
+    # dbNSFP is distributed per-chromosome; sarcoglycans span chr5/chr13/chr17 (see genes.chrom)
+  uniprot:
+    accession: Q16586         # SGCA / alpha-sarcoglycan
+    api: "https://rest.uniprot.org/uniprotkb"
+
+# ---------------------------------------------------------------------------
+# Genes. panel = TRAINING (statistical power); focus = INTERPRETATION/reports.
+# MANE Select transcripts; chrom for dbNSFP slicing. GRCh38.
+# ---------------------------------------------------------------------------
+genes:
+  panel: [SGCA, SGCB, SGCG, SGCD]
+  focus: SGCA
+  # NOTE: only SGCA's accession (Q16586) is needed for the report and is verified
+  # against the spec. The other three accessions are used ONLY in `live` mode to fetch
+  # per-gene UniProt topology; fixture mode keys regions by gene symbol and ignores them.
+  # SGCG's accession is left null pending verification rather than asserting a wrong one
+  # (live mode degrades gracefully to "unknown region" for a null accession).
+  meta:
+    SGCA: { transcript: NM_000023.4, uniprot: Q16586, chrom: "17", aa_len: 387 }
+    SGCB: { transcript: NM_000232.5, uniprot: Q13326, chrom: "4",  aa_len: 318 }  # verify accession before live use
+    SGCG: { transcript: NM_000231.3, uniprot: null,   chrom: "13", aa_len: 291 }  # accession unverified -> null
+    SGCD: { transcript: NM_000337.6, uniprot: Q92629, chrom: "5",  aa_len: 290 }  # verify accession before live use
+
+# ---------------------------------------------------------------------------
+# ClinVar ClinicalSignificance -> binary label. VUS/Conflicting are held out.
+# ---------------------------------------------------------------------------
+labels:
+  pathogenic: ["Pathogenic", "Likely pathogenic", "Pathogenic/Likely pathogenic"]
+  benign: ["Benign", "Likely benign", "Benign/Likely benign"]
+  vus_holdout:
+    - "Uncertain significance"
+    - "Conflicting interpretations of pathogenicity"
+    - "Conflicting classifications of pathogenicity"
+  drop_if_unmatched: true     # significance strings outside the above are dropped, not guessed
+  min_review_stars: 1         # ACMG review-status floor; drop 0-star (no assertion criteria)
+
+# ---------------------------------------------------------------------------
+# Variant-class routing.
+# ---------------------------------------------------------------------------
+variant_class:
+  truncating_consequences:
+    - stop_gained
+    - frameshift_variant
+    - splice_donor_variant
+    - splice_acceptor_variant
+  splice_canonical_offset: 2  # +/- 1,2 from exon boundary = canonical splice
+  truncating_rule_label: pathogenic   # recessive LoF gene; flagged, NOT sent to the ML model
+
+# ---------------------------------------------------------------------------
+# Features (missense track). ablation_groups drive the honest with/without reporting.
+# ---------------------------------------------------------------------------
+features:
+  conservation: [GERPpp_RS, phyloP100way_vertebrate, phastCons100way_vertebrate, SiPhy_29way_logOdds]
+  substitution: [Grantham, BLOSUM62, delta_hydrophobicity, delta_volume]
+  predictors:   [SIFT_score, Polyphen2_HVAR_score, CADD_phred, REVEL_score, AlphaMissense_score, MetaSVM_score]
+  population:   [gnomad_AF, gnomad_AF_popmax, gnomad_nhomalt]
+  positional:   [protein_position, region_ordinal, in_known_domain]
+  ablation_groups:
+    predictor_derived: [SIFT_score, Polyphen2_HVAR_score, CADD_phred, REVEL_score, AlphaMissense_score, MetaSVM_score]
+    allele_frequency:  [gnomad_AF, gnomad_AF_popmax, gnomad_nhomalt]
+
+# ---------------------------------------------------------------------------
+# Model. Deterministic; calibrated; honest middle band.
+# ---------------------------------------------------------------------------
+model:
+  type: lightgbm              # falls back to sklearn HistGradientBoosting if libgomp absent (logged)
+  params:
+    num_leaves: 31
+    learning_rate: 0.05
+    n_estimators: 400
+    min_child_samples: 15
+    subsample: 0.9
+    colsample_bytree: 0.9
+  calibration: isotonic       # isotonic | sigmoid
+  decision:
+    pathogenic_threshold: 0.90   # >= this -> Likely pathogenic (high bar)
+    benign_threshold: 0.10       # <= this -> Likely benign
+    # strictly between -> reported "Uncertain", never coerced into a confident class
+
+# ---------------------------------------------------------------------------
+# Evaluation. Leakage-aware; ablations; baselines; CIs from repeated CV.
+# ---------------------------------------------------------------------------
+evaluation:
+  cv:
+    scheme: gene_disjoint     # gene_disjoint | position_kfold
+    folds: 4                  # one held-out sarcoglycan per fold
+    repeats: 20               # repeated (seeded) CV -> confidence intervals
+  metrics: [roc_auc, average_precision, brier]
+  ablations: [full, no_predictor_derived, no_allele_frequency, no_predictor_and_no_af]
+  baselines:
+    reference_predictors: [REVEL_score, AlphaMissense_score]
+    thresholds: { REVEL_score: 0.5, AlphaMissense_score: 0.564 }  # literature binary cutpoints
+
+# ---------------------------------------------------------------------------
+# Paths (relative to repo root).
+# ---------------------------------------------------------------------------
+paths:
+  raw: data/raw
+  interim: data/interim
+  processed: data/processed
+  models: models
+  reports: reports
