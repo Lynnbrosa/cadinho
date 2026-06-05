@@ -45,34 +45,50 @@ def run_evaluation(cfg: Config, df: pd.DataFrame, repeats: int | None = None) ->
     # 2) baselines (model OOF vs REVEL/AlphaMissense on same variants)
     baselines = compare_to_baselines(df, cfg)
 
-    # 3) calibration on pooled OOF
+    # 3) calibration on pooled OOF. Raw = genuinely out-of-fold (no optimism).
+    #    Calibrated = after the shipped isotonic map (fit on these OOF preds, so its
+    #    in-distribution calibration is modestly optimistic). We report both, honestly.
+    from cadinho.model.train import fit_calibrator
     yv, oof, _ = pooled_oof(df, cfg)
-    frac_pos, mean_pred, brier = calibration_bins(yv, oof)
-    _plot_calibration(cfg, frac_pos, mean_pred, brier, synthetic)
+    calibrator = fit_calibrator(oof, yv, cfg.model.calibration)
+    oof_cal = np.full_like(oof, np.nan)
+    m = ~np.isnan(oof)
+    oof_cal[m] = calibrator.predict(oof[m])
+    frac_raw, mean_raw, brier_raw = calibration_bins(yv, oof)
+    frac_cal, mean_cal, brier_cal = calibration_bins(yv, oof_cal)
+    _plot_calibration(cfg, (mean_raw, frac_raw, brier_raw),
+                      (mean_cal, frac_cal, brier_cal), synthetic)
 
     results = {"synthetic": synthetic, "data_mode": cfg.data_sources.mode,
                "cv_scheme": cfg.evaluation.cv.scheme, "genes": cfg.genes.panel,
                "ablations": ablations, "baselines": baselines,
-               "calibration": {"brier": float(brier),
+               "calibration": {"brier_raw": float(brier_raw),
+                               "brier_calibrated": float(brier_cal),
                                "bins": [{"mean_pred": float(p), "frac_pos": float(f)}
-                                        for p, f in zip(mean_pred, frac_pos)]}}
+                                        for p, f in zip(mean_raw, frac_raw)]}}
     cfg.path("processed", "eval_metrics.json").write_text(json.dumps(results, indent=2))
     _write_markdown(cfg, results, synthetic)
     return results
 
 
-def _plot_calibration(cfg, frac_pos, mean_pred, brier, synthetic):
+def _plot_calibration(cfg, raw, cal, synthetic):
+    mean_raw, frac_raw, brier_raw = raw
+    mean_cal, frac_cal, brier_cal = cal
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.plot([0, 1], [0, 1], "--", color="grey", label="perfect")
-    ax.plot(mean_pred, frac_pos, "o-", label=f"model (Brier={brier:.3f})")
+    ax.plot(mean_raw, frac_raw, "o-", color="C1",
+            label=f"raw model, OOF (Brier={brier_raw:.3f})")
+    ax.plot(mean_cal, frac_cal, "s-", color="C0",
+            label=f"calibrated, in-sample (Brier={brier_cal:.3f})")
     ax.set_xlabel("mean predicted probability")
     ax.set_ylabel("observed fraction pathogenic")
     title = "Calibration (gene-disjoint OOF)"
     if synthetic:
         title += "\nSYNTHETIC DATA — not real"
     ax.set_title(title)
-    ax.legend(loc="upper left")
-    ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+    ax.legend(loc="upper left", fontsize=8)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
     fig.tight_layout()
     fig.savefig(cfg.path("reports", "calibration.png"), dpi=110)
     plt.close(fig)
@@ -106,9 +122,12 @@ def _write_markdown(cfg, r, synthetic):
           ""]
 
     L += ["## Calibration (gene-disjoint OOF)", "",
-          f"- Brier score: **{r['calibration']['brier']:.3f}** (lower is better).",
-          "- See `calibration.png`. A well-calibrated 0.8 should mean ~80% observed.", "",
-          "| mean predicted | observed fraction |", "|---|---|"]
+          f"- Brier: **raw {r['calibration']['brier_raw']:.3f}** (genuinely out-of-fold) → "
+          f"**calibrated {r['calibration']['brier_calibrated']:.3f}** (after the shipped "
+          "isotonic map; in-sample, so modestly optimistic).",
+          "- See `calibration.png`. A well-calibrated 0.8 should mean ~80% observed. "
+          "The table below is the **raw** OOF model (the conservative, no-optimism view).", "",
+          "| mean predicted (raw) | observed fraction |", "|---|---|"]
     for b in r["calibration"]["bins"]:
         L.append(f"| {b['mean_pred']:.3f} | {b['frac_pos']:.3f} |")
     L += ["",

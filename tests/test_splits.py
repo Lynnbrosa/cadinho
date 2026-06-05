@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
-
 from cadinho.evaluate.splits import gene_groups, make_folds, position_groups
 from cadinho.features.build import get_xy
 from cadinho.normalize.reconcile import build_interim

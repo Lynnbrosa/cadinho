@@ -9,10 +9,10 @@
 
 | Feature set | ROC-AUC | AUPRC | Brier |
 |---|---|---|---|
-| full | 0.830 [0.697–0.937] | 0.839 [0.668–0.955] | 0.180 [0.123–0.239] |
-| no_predictor_derived | 0.773 [0.667–0.907] | 0.784 [0.600–0.914] | 0.216 [0.128–0.301] |
-| no_allele_frequency | 0.845 [0.697–0.952] | 0.845 [0.671–0.965] | 0.162 [0.104–0.234] |
-| no_predictor_and_no_af | 0.782 [0.672–0.912] | 0.786 [0.593–0.916] | 0.213 [0.120–0.290] |
+| full | 0.831 [0.698–0.938] | 0.839 [0.663–0.957] | 0.180 [0.122–0.241] |
+| no_predictor_derived | 0.774 [0.664–0.909] | 0.784 [0.596–0.918] | 0.216 [0.126–0.297] |
+| no_allele_frequency | 0.846 [0.698–0.954] | 0.846 [0.667–0.967] | 0.162 [0.102–0.235] |
+| no_predictor_and_no_af | 0.783 [0.670–0.916] | 0.788 [0.592–0.920] | 0.211 [0.117–0.289] |
 
 *`no_predictor_derived` removes REVEL/AlphaMissense/SIFT/PolyPhen/CADD/MetaSVM (themselves ClinVar/HGMD-trained). `no_allele_frequency` removes gnomAD AF (partly circular: ACMG uses AF). The gap to `full` is the borrowed signal.*
 
@@ -28,10 +28,10 @@
 
 ## Calibration (gene-disjoint OOF)
 
-- Brier score: **0.183** (lower is better).
-- See `calibration.png`. A well-calibrated 0.8 should mean ~80% observed.
+- Brier: **raw 0.183** (genuinely out-of-fold) → **calibrated 0.147** (after the shipped isotonic map; in-sample, so modestly optimistic).
+- See `calibration.png`. A well-calibrated 0.8 should mean ~80% observed. The table below is the **raw** OOF model (the conservative, no-optimism view).
 
-| mean predicted | observed fraction |
+| mean predicted (raw) | observed fraction |
 |---|---|
 | 0.000 | 0.207 |
 | 0.001 | 0.172 |

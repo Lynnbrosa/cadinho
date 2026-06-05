@@ -199,11 +199,14 @@ def _gene_rows(cfg: Config, gene: str, rng: np.random.RandomState) -> list[dict]
                          p=[0.7, 0.2, 0.1])
         stars = int(rng.choice([1, 2, 3], p=[0.5, 0.3, 0.2]))
         if kind == "stop_gained":
-            hgvs_c = f"c.{cdna}C>T"; hgvs_p = f"p.{ONE_TO_THREE[aaref]}{pos}Ter"; vtype = "single nucleotide variant"
+            hgvs_c, hgvs_p = f"c.{cdna}C>T", f"p.{ONE_TO_THREE[aaref]}{pos}Ter"
+            vtype = "single nucleotide variant"
         elif kind == "frameshift_variant":
-            hgvs_c = f"c.{cdna}delA"; hgvs_p = f"p.{ONE_TO_THREE[aaref]}{pos}fs"; vtype = "Deletion"
+            hgvs_c, hgvs_p = f"c.{cdna}delA", f"p.{ONE_TO_THREE[aaref]}{pos}fs"
+            vtype = "Deletion"
         else:
-            hgvs_c = f"c.{cdna}+1G>A"; hgvs_p = ""; vtype = "single nucleotide variant"
+            hgvs_c, hgvs_p = f"c.{cdna}+1G>A", ""
+            vtype = "single nucleotide variant"
         rows.append({
             "gene": gene, "chrom": chrom, "gpos": base_g + cdna, "ref_nt": "C", "alt_nt": "T",
             "transcript": transcript, "aaref": aaref, "aaalt": "", "protein_position": pos,
