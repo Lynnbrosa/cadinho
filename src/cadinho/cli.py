@@ -68,6 +68,17 @@ def normalize(ctx, force):
                f"truncating={int((df.variant_class=='truncating').sum())})")
 
 
+@main.command(help="Ground-truth validation (R77C, per-gene counts, build consistency).")
+@click.option("--strict", is_flag=True, help="Exit non-zero if the R77C check fails.")
+@click.pass_context
+def validate(ctx, strict):
+    from cadinho.normalize.reconcile import load_interim
+    from cadinho.validate import format_validation, run_validation
+    cfg = _cfg(ctx.obj["config_path"])
+    res = run_validation(load_interim(cfg), cfg, strict=strict)
+    click.echo(format_validation(res))
+
+
 @main.command(help="Train the calibrated missense model (deterministic).")
 @click.pass_context
 def train(ctx):

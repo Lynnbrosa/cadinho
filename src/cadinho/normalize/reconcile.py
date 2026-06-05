@@ -23,6 +23,11 @@ _DBNSFP_FEATURES = [
 _KEY = ["chrom", "pos", "ref", "alt"]
 
 
+def has_dbnsfp_features(df: pd.DataFrame) -> bool:
+    """True if the table carries any dbNSFP conservation/predictor column."""
+    return any(c in df.columns for c in _DBNSFP_FEATURES)
+
+
 def _normalize_key(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["chrom"] = df["chrom"].astype(str)
@@ -42,23 +47,36 @@ def _consequence_and_class(row, cfg: Config) -> tuple[str, str]:
 
 def reconcile(sources: dict, cfg: Config) -> pd.DataFrame:
     clin = _normalize_key(sources["clinvar"])
-    db = _normalize_key(sources["dbnsfp"]).drop_duplicates(subset=_KEY)
-    gno = _normalize_key(sources["gnomad"]).drop_duplicates(subset=_KEY)
     uni = sources["uniprot"]
-
-    # features from dbNSFP (+ aaref/aaalt/protein_position authoritative for missense)
-    db_cols = _KEY + [c for c in ["aaref", "aaalt", "protein_position", *_DBNSFP_FEATURES]
-                      if c in db.columns]
-    df = clin.merge(db[db_cols], on=_KEY, how="left", suffixes=("", "_db"))
-
-    # prefer dbNSFP residue annotation where present
+    df = clin.copy()
     for col in ("aaref", "aaalt", "protein_position"):
         if col not in df.columns:
             df[col] = pd.NA
 
-    # gnomAD AF (missing => absent => 0; flag it)
-    df = df.merge(gno, on=_KEY, how="left")
-    df["in_gnomad"] = df["gnomad_AF"].notna()
+    # --- dbNSFP feature layer (OPTIONAL: may be absent for a first real run) ---
+    db = sources.get("dbnsfp")
+    has_db = db is not None and len(db) > 0
+    if has_db:
+        db = _normalize_key(db).drop_duplicates(subset=_KEY)
+        db_cols = _KEY + [c for c in ["aaref", "aaalt", "protein_position", *_DBNSFP_FEATURES]
+                          if c in db.columns]
+        df = df.merge(db[db_cols], on=_KEY, how="left", suffixes=("", "_db"))
+        # dbNSFP residue annotation is authoritative where present; else keep ClinVar's
+        for col in ("aaref", "aaalt", "protein_position"):
+            dbcol = f"{col}_db"
+            if dbcol in df.columns:
+                df[col] = df[dbcol].where(df[dbcol].notna(), df[col])
+                df = df.drop(columns=[dbcol])
+
+    # --- gnomAD AF (OPTIONAL per gene; missing => absent => 0, flagged) ---
+    gno = sources.get("gnomad")
+    if gno is not None and len(gno) > 0:
+        gno = _normalize_key(gno).drop_duplicates(subset=_KEY)
+        df = df.merge(gno, on=_KEY, how="left")
+        df["in_gnomad"] = df["gnomad_AF"].notna()
+    else:
+        df["gnomad_AF"] = df["gnomad_AF_popmax"] = df["gnomad_nhomalt"] = pd.NA
+        df["in_gnomad"] = False
     for col in ("gnomad_AF", "gnomad_AF_popmax", "gnomad_nhomalt"):
         df[col] = df[col].fillna(0)
 

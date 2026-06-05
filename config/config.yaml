@@ -25,7 +25,12 @@ data_sources:
     dataset: gnomad_r4
   dbnsfp:
     version: null             # pinned at ingest (live/provided)
-    # dbNSFP is distributed per-chromosome; sarcoglycans span chr5/chr13/chr17 (see genes.chrom)
+    enabled: false            # OPTIONAL enrichment. The full release is ~30 GB and the
+                              # filesystem resets between sessions, so the first real run
+                              # runs WITHOUT dbNSFP. Set true only when a tabix/bgzip build
+                              # reachable over HTTP range requests is configured (file_url).
+    file_url: null            # bgzip+tabix-indexed dbNSFP URL (must support Accept-Ranges)
+                              # e.g. a per-chromosome dbNSFP.gz with a sibling .gz.tbi
   uniprot:
     accession: Q16586         # SGCA / alpha-sarcoglycan
     api: "https://rest.uniprot.org/uniprotkb"

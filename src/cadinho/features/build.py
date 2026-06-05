@@ -42,6 +42,13 @@ def feature_names(cfg: Config, drop_groups: tuple[str, ...] = ()) -> list[str]:
     return [f for f in cfg.features.all_feature_names() if f not in drop]
 
 
+def available_feature_names(df: pd.DataFrame, cfg: Config,
+                            drop_groups: tuple[str, ...] = ()) -> list[str]:
+    """feature_names intersected with columns the table actually has (post substitution)."""
+    have = set(df.columns) | set(SUBSTITUTION)  # substitution cols are added on demand
+    return [f for f in feature_names(cfg, drop_groups) if f in have]
+
+
 def get_xy(df: pd.DataFrame, cfg: Config, drop_groups: tuple[str, ...] = (),
            labelled_only: bool = True) -> tuple[pd.DataFrame, pd.Series | None, pd.DataFrame]:
     """Return (X, y, meta) for the missense track.
@@ -54,7 +61,9 @@ def get_xy(df: pd.DataFrame, cfg: Config, drop_groups: tuple[str, ...] = (),
         mis = mis[mis["label"].notna()]
     mis = add_substitution_features(mis).reset_index(drop=True)
 
-    feats = feature_names(cfg, drop_groups)
+    # Only use feature columns actually present: dbNSFP (conservation + predictor scores)
+    # may be absent for a first real run, leaving biochemistry + gnomAD AF + positional.
+    feats = [f for f in feature_names(cfg, drop_groups) if f in mis.columns]
     X = mis[feats].apply(pd.to_numeric, errors="coerce")
     y = mis["label"].astype(int) if labelled_only else None
     meta = mis[[c for c in META_COLS if c in mis.columns]].copy()

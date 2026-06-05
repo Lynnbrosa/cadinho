@@ -3,19 +3,25 @@
 dbNSFP is a precomputed, genome-wide table of every possible non-synonymous SNV. We
 slice by gene, never recompute conservation. Missing values are '.' in dbNSFP -> NaN.
 
-There is no anonymous bulk URL for dbNSFP (academic download). `download_live` therefore
-points you at `provided` mode: drop a gene/chr-sliced dbNSFP file at the expected path
-with the documented columns (or slice the academic release with tabix using the
-per-gene chromosomes in config.genes.meta).
+The full release (~30 GB) is never downloaded. `fetch_live` does REMOTE tabix region
+queries over the 4 gene intervals if a bgzip/tabix build that supports HTTP range
+requests is configured (data_sources.dbnsfp.file_url) and pysam is installed; otherwise
+it returns None and the pipeline runs without dbNSFP. `provided` mode also works: drop a
+gene/chr-sliced file at the expected path with the documented columns.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
 
 from cadinho.config import Config
+from cadinho.ingest import manifest
+from cadinho.ingest.layout import raw_paths
+
+log = logging.getLogger("cadinho.dbnsfp")
 
 # dbNSFP column -> internal name (only what we use). '++' is not identifier-safe.
 _RENAME = {
@@ -46,11 +52,73 @@ def parse(path: Path, cfg: Config) -> pd.DataFrame:
     return df
 
 
-def download_live(cfg: Config) -> Path:
-    raise NotImplementedError(
-        "dbNSFP has no anonymous bulk download URL. Use `data_sources.mode: provided`: "
-        "place a gene/chr-sliced dbNSFP file (documented columns, incl. GERP++_RS, "
-        "phyloP/phastCons, REVEL_score, AlphaMissense_score, ...) at "
-        f"data/raw/dbnsfp_slice.{'_'.join(cfg.genes.panel)}.tsv, or slice the academic "
-        "dbNSFP release with tabix using config.genes.meta[*].chrom. See README."
-    )
+def gene_intervals_from_clinvar(clinvar_df, cfg: Config, pad: int = 2000) -> dict[str, tuple]:
+    """Derive per-gene (chrom, start, end) GRCh38 intervals from the ClinVar rows we
+    already have (min/max position per gene). Avoids hardcoding coordinates; used to scope
+    dbNSFP region queries to a few kb instead of the whole 30 GB file."""
+    intervals: dict[str, tuple] = {}
+    for gene, g in clinvar_df.groupby("gene"):
+        pos = g["pos"].dropna().astype(int)
+        if len(pos) == 0:
+            continue
+        chrom = str(cfg.genes.meta.get(gene, {}).get("chrom") or g["chrom"].iloc[0])
+        intervals[gene] = (chrom, int(pos.min()) - pad, int(pos.max()) + pad)
+    return intervals
+
+
+def supports_range_requests(url: str, timeout: int = 20) -> bool:
+    """HEAD-probe whether the dbNSFP file host supports HTTP range requests."""
+    import requests
+
+    r = requests.head(url, timeout=timeout, allow_redirects=True)
+    r.raise_for_status()
+    return r.headers.get("Accept-Ranges", "").lower() == "bytes"
+
+
+def fetch_live(cfg: Config, clinvar_df=None) -> Path | None:
+    """Best-effort dbNSFP enrichment via REMOTE tabix region queries (no 30 GB download).
+
+    Returns the written slice path, or None if not viable (so the caller proceeds without
+    dbNSFP). Never downloads the full file. Requires:
+      * data_sources.dbnsfp.file_url -> a bgzip+tabix (.tbi) dbNSFP build that supports ranges
+      * pysam installed (optional extra: `uv pip install '.[dbnsfp]'`)
+    """
+    url = cfg.data_sources.dbnsfp.get("file_url")
+    if not url:
+        log.warning("dbNSFP file_url not configured; skipping enrichment.")
+        return None
+    try:
+        if not supports_range_requests(url):
+            log.warning("dbNSFP host does not advertise Accept-Ranges; skipping (won't pull 30 GB).")
+            return None
+    except Exception as e:
+        log.warning("dbNSFP range probe failed (%s); skipping.", e)
+        return None
+    try:
+        import pysam  # optional
+    except Exception:
+        log.warning("pysam not installed; cannot do remote tabix region queries. "
+                    "Install with `uv pip install '.[dbnsfp]'`. Skipping dbNSFP.")
+        return None
+
+    if clinvar_df is None:
+        from cadinho.ingest import clinvar as _cv
+        clinvar_df = _cv.parse(raw_paths(cfg)["clinvar"], cfg)
+    intervals = gene_intervals_from_clinvar(clinvar_df, cfg)
+
+    out = raw_paths(cfg)["dbnsfp"]
+    tbx = pysam.TabixFile(url)  # reads index remotely; fetches only requested byte ranges
+    header = "\t".join(tbx.header[-1].split("\t")) if tbx.header else None
+    n = 0
+    with open(out, "w") as fh:
+        if header:
+            fh.write(header + "\n")
+        for gene, (chrom, start, end) in intervals.items():
+            for row in tbx.fetch(chrom, max(0, start), end):
+                fh.write(row + "\n")
+                n += 1
+    manifest.record_source(cfg.path("raw"), "dbnsfp", mode="live", path=out, url=url,
+                           version=str(cfg.data_sources.dbnsfp.get("version")),
+                           n_rows=n, note="remote-tabix region slice (4 gene intervals)")
+    log.info("dbNSFP remote slice: %d rows over %d genes -> %s", n, len(intervals), out)
+    return out

@@ -38,6 +38,10 @@ def parse(path: Path, cfg: Config) -> pd.DataFrame:
             "ref": ref, "alt": alt,
             "transcript": pv.transcript or "", "hgvs_c": pv.hgvs_c or "",
             "hgvs_p": pv.hgvs_p or "",
+            # residue info from the HGVS itself, so the missense track works even
+            # without dbNSFP (dbNSFP values override these in reconcile when present)
+            "aaref": pv.aaref or "", "aaalt": pv.aaalt or "",
+            "protein_position": pv.protein_position,
             "clinvar_sig": r["ClinicalSignificance"],
             "review_status": r["ReviewStatus"],
             "review_stars": review_status_to_stars(r["ReviewStatus"]),
